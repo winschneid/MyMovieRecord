@@ -119,10 +119,6 @@ dependencies {
     // Compose Preview Screenshot Testing（src/screenshotTest の @Preview をレンダリングして比較）
     screenshotTestImplementation(platform(libs.androidx.compose.bom))
     screenshotTestImplementation(libs.androidx.ui.tooling)
-    // @PreviewTest 注釈だけを使う。依存の kotlin-stdlib 2.2 はプロジェクトの Kotlin 2.0 では読めないため除外する
-    screenshotTestImplementation(libs.screenshot.validation.api) {
-        exclude(group = "org.jetbrains.kotlin")
-    }
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
