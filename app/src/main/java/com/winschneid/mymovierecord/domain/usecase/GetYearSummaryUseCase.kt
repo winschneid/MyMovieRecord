@@ -24,17 +24,21 @@ class GetYearSummaryUseCase @Inject constructor(
                     YearSummary(
                         year = year,
                         totalCount = yearRecords.size,
-                        averageRating = yearRecords.map { it.rating }.average(),
+                        averageRating = averageRatingOf(yearRecords),
                         ratingCounts = (MovieRecord.MIN_RATING..MovieRecord.MAX_RATING).map { rating ->
                             yearRecords.count { it.rating == rating }
                         },
+                        unratedCount = yearRecords.count { it.rating == null },
                         // 同じ作品を複数回観た場合は最高評価の1件だけを残す
                         topMovies = yearRecords
-                            .filter { it.rating > 0 }
-                            .sortedWith(compareByDescending<MovieRecord> { it.rating }.thenByDescending { it.date })
-                            .distinctBy { it.title }
+                            .mapNotNull { record -> record.rating?.takeIf { it > 0 }?.let { record to it } }
+                            .sortedWith(
+                                compareByDescending<Pair<MovieRecord, Int>> { it.second }
+                                    .thenByDescending { it.first.date }
+                            )
+                            .distinctBy { it.first.title }
                             .take(TOP_MOVIES_LIMIT)
-                            .map { RatedMovie(it.title, it.rating) },
+                            .map { (record, rating) -> RatedMovie(record.title, rating) },
                         rewatchedTitles = yearRecords
                             .groupingBy { it.title }
                             .eachCount()
@@ -58,3 +62,7 @@ class GetYearSummaryUseCase @Inject constructor(
         const val TOP_MOVIES_LIMIT = 5
     }
 }
+
+/** 未評価（null）を除いた平均評価。評価済みが1件もなければ null */
+fun averageRatingOf(records: List<MovieRecord>): Double? =
+    records.mapNotNull { it.rating }.takeIf { it.isNotEmpty() }?.average()

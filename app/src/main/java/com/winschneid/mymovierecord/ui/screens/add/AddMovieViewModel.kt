@@ -26,10 +26,12 @@ data class AddMovieUiState(
     val title: String = "",
     val theaterName: String = "",
     val date: Long = System.currentTimeMillis(),
-    val rating: Int = 0,
+    val rating: Int? = null,
     val review: String = "",
     val isSaved: Boolean = false,
     val isEditMode: Boolean = false,
+    val isLoaded: Boolean = true, // 編集時は既存記録の読み込みが終わるまで false
+    val hasChanges: Boolean = false, // 開いた時点から入力が変わったか（破棄確認に使う）
     val titleSuggestions: List<String> = emptyList(),
     val theaterSuggestions: List<String> = emptyList(),
     val duplicateWarning: String? = null, // 同日・同作品の既存記録がある場合の確認メッセージ
@@ -39,7 +41,7 @@ sealed interface AddMovieAction {
     data class UpdateTitle(val value: String) : AddMovieAction
     data class UpdateTheaterName(val value: String) : AddMovieAction
     data class UpdateDate(val value: Long) : AddMovieAction
-    data class UpdateRating(val value: Int) : AddMovieAction
+    data class UpdateRating(val value: Int?) : AddMovieAction
     data class UpdateReview(val value: String) : AddMovieAction
     data object Save : AddMovieAction
     data object ConfirmSave : AddMovieAction
@@ -47,20 +49,36 @@ sealed interface AddMovieAction {
     data object Delete : AddMovieAction
 }
 
-private data class InputState(
+/** 入力フォームの内容。変更有無の比較に使うため、画面制御用の状態とは分けて持つ */
+private data class FormFields(
     val title: String = "",
     val theaterName: String = "",
     val date: Long = System.currentTimeMillis(),
-    val rating: Int = 0,
+    val rating: Int? = null,
     val review: String = "",
+)
+
+private data class InputState(
+    val fields: FormFields = FormFields(),
+    val initialFields: FormFields = fields,
+    val isLoaded: Boolean = true,
     val isSaved: Boolean = false,
     val duplicateWarning: String? = null,
 )
 
-/** 入力中の文字列を部分一致で含み、かつ完全一致ではない候補に絞る */
-private fun List<String>.suggestFor(input: String): List<String> =
-    if (input.isBlank()) emptyList()
-    else filter { it.contains(input, ignoreCase = true) && !it.equals(input, ignoreCase = true) }
+private const val SUGGESTION_LIMIT = 5
+
+/**
+ * 入力中の文字列を部分一致で含み、かつ完全一致ではない候補に絞る。
+ * 前方一致を優先して並べ、多すぎると選びにくいため上限を設ける。
+ */
+internal fun List<String>.suggestFor(input: String): List<String> {
+    val query = input.trim()
+    if (query.isEmpty()) return emptyList()
+    return filter { it.contains(query, ignoreCase = true) && !it.equals(query, ignoreCase = true) }
+        .sortedBy { !it.startsWith(query, ignoreCase = true) }
+        .take(SUGGESTION_LIMIT)
+}
 
 @HiltViewModel
 class AddMovieViewModel @Inject constructor(
@@ -75,43 +93,67 @@ class AddMovieViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val recordId: Long? = savedStateHandle.get<Long>("recordId")
+    private val prefillTitle: String? = savedStateHandle.get<String>("title")
 
-    private val _input = MutableStateFlow(InputState())
+    private val _input = MutableStateFlow(
+        InputState(
+            fields = FormFields(title = prefillTitle.orEmpty()),
+            isLoaded = recordId == null,
+        )
+    )
 
     val uiState = combine(
         _input,
         getTitles(),
         getTheaterNames(),
     ) { input, titles, theaterNames ->
+        val fields = input.fields
         AddMovieUiState(
-            title = input.title,
-            theaterName = input.theaterName,
-            date = input.date,
-            rating = input.rating,
-            review = input.review,
+            title = fields.title,
+            theaterName = fields.theaterName,
+            date = fields.date,
+            rating = fields.rating,
+            review = fields.review,
             isSaved = input.isSaved,
             duplicateWarning = input.duplicateWarning,
             isEditMode = recordId != null,
-            titleSuggestions = titles.suggestFor(input.title),
-            theaterSuggestions = theaterNames.suggestFor(input.theaterName),
+            isLoaded = input.isLoaded,
+            hasChanges = fields != input.initialFields,
+            titleSuggestions = titles.suggestFor(fields.title),
+            theaterSuggestions = theaterNames.suggestFor(fields.theaterName),
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AddMovieUiState(isEditMode = recordId != null),
+        initialValue = AddMovieUiState(isEditMode = recordId != null, isLoaded = recordId == null),
     )
 
     init {
-        if (recordId != null) {
-            viewModelScope.launch {
-                getMovieRecordById(recordId)?.let { record ->
-                    _input.value = InputState(
-                        title = record.title,
-                        theaterName = record.theaterName,
-                        date = record.date,
-                        rating = record.rating,
-                        review = record.review,
+        when {
+            recordId != null -> viewModelScope.launch {
+                val record = getMovieRecordById(recordId)
+                val fields = record?.let {
+                    FormFields(
+                        title = it.title,
+                        theaterName = it.theaterName,
+                        date = it.date,
+                        rating = it.rating,
+                        review = it.review,
                     )
+                } ?: FormFields()
+                _input.value = InputState(fields = fields, isLoaded = true)
+            }
+            // もう一度観た: 前回と同じ映画館で観ることが多いので、直近の鑑賞場所も入れておく
+            prefillTitle != null -> viewModelScope.launch {
+                val lastTheater = getMovieRecords().first()
+                    .firstOrNull { it.title == prefillTitle }
+                    ?.theaterName
+                    .orEmpty()
+                _input.update {
+                    // 読み込み中にユーザーが入力を始めていたら上書きしない
+                    if (it.fields != it.initialFields) return@update it
+                    val fields = it.fields.copy(theaterName = lastTheater)
+                    it.copy(fields = fields, initialFields = fields)
                 }
             }
         }
@@ -119,18 +161,22 @@ class AddMovieViewModel @Inject constructor(
 
     fun onAction(action: AddMovieAction) {
         when (action) {
-            is AddMovieAction.UpdateTitle -> _input.update { it.copy(title = action.value) }
-            is AddMovieAction.UpdateTheaterName -> _input.update { it.copy(theaterName = action.value) }
-            is AddMovieAction.UpdateDate -> _input.update { it.copy(date = action.value) }
-            is AddMovieAction.UpdateRating -> _input.update {
-                it.copy(rating = action.value.coerceIn(MovieRecord.MIN_RATING, MovieRecord.MAX_RATING))
+            is AddMovieAction.UpdateTitle -> updateFields { it.copy(title = action.value) }
+            is AddMovieAction.UpdateTheaterName -> updateFields { it.copy(theaterName = action.value) }
+            is AddMovieAction.UpdateDate -> updateFields { it.copy(date = action.value) }
+            is AddMovieAction.UpdateRating -> updateFields {
+                it.copy(rating = action.value?.coerceIn(MovieRecord.MIN_RATING, MovieRecord.MAX_RATING))
             }
-            is AddMovieAction.UpdateReview -> _input.update { it.copy(review = action.value) }
+            is AddMovieAction.UpdateReview -> updateFields { it.copy(review = action.value) }
             AddMovieAction.Save -> save(force = false)
             AddMovieAction.ConfirmSave -> save(force = true)
             AddMovieAction.DismissDuplicateWarning -> _input.update { it.copy(duplicateWarning = null) }
             AddMovieAction.Delete -> delete()
         }
+    }
+
+    private fun updateFields(transform: (FormFields) -> FormFields) {
+        _input.update { it.copy(fields = transform(it.fields)) }
     }
 
     private fun delete() {
@@ -143,10 +189,12 @@ class AddMovieViewModel @Inject constructor(
 
     private fun save(force: Boolean) {
         val input = _input.value
-        val title = input.title.trim()
+        if (!input.isLoaded) return
+        val fields = input.fields
+        val title = fields.title.trim()
         if (title.isEmpty()) return
         viewModelScope.launch {
-            if (!force && hasSameDayRecord(title, input.date)) {
+            if (!force && hasSameDayRecord(title, fields.date)) {
                 _input.update {
                     it.copy(
                         duplicateWarning = "同じ日に「$title」の記録が登録されています。このまま保存しますか？",
@@ -157,10 +205,10 @@ class AddMovieViewModel @Inject constructor(
             val record = MovieRecord(
                 id = recordId ?: 0L,
                 title = title,
-                theaterName = input.theaterName.trim(),
-                date = input.date,
-                rating = input.rating,
-                review = input.review.trim(),
+                theaterName = fields.theaterName.trim(),
+                date = fields.date,
+                rating = fields.rating,
+                review = fields.review.trim(),
             )
             if (recordId != null) updateMovieRecord(record) else addMovieRecord(record)
             _input.update { it.copy(duplicateWarning = null, isSaved = true) }

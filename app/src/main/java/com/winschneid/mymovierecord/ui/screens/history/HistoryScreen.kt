@@ -1,5 +1,6 @@
 package com.winschneid.mymovierecord.ui.screens.history
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -10,21 +11,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -42,7 +48,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -61,13 +66,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.winschneid.mymovierecord.ui.components.RatingStars
+import com.winschneid.mymovierecord.ui.components.formatDate
 import com.winschneid.mymovierecord.ui.theme.MyMovieRecordTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,6 +91,17 @@ fun HistoryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val scrollToRecordId by viewModel.scrollToRecordId.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+
+    // 「元に戻す」で復元した記録が見える位置までスクロールする（一覧に反映されるまで待つ）
+    LaunchedEffect(scrollToRecordId, uiState.sections) {
+        val id = scrollToRecordId ?: return@LaunchedEffect
+        val index = uiState.sections.listIndexOfHeaderFor(id) ?: return@LaunchedEffect
+        listState.animateScrollToItem(index)
+        viewModel.scrollHandled()
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -96,7 +116,8 @@ fun HistoryScreen(
             val result = snackbarHostState.showSnackbar(
                 message = msg.text,
                 actionLabel = if (msg.withUndo) "元に戻す" else null,
-                duration = SnackbarDuration.Short,
+                // 削除は確認なしで行うため、取り消せる時間を長めにとる
+                duration = if (msg.withUndo) SnackbarDuration.Long else SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
                 viewModel.undoDelete()
@@ -118,6 +139,7 @@ fun HistoryScreen(
             exportLauncher.launch("movie_records_$today.json")
         },
         onImportClick = { importLauncher.launch(arrayOf("*/*")) },
+        listState = listState,
     )
 }
 
@@ -133,28 +155,14 @@ private fun HistoryContent(
     onSearchQueryChange: (String) -> Unit,
     onExportClick: () -> Unit,
     onImportClick: () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<MovieRecordItem?>(null) }
-
-    pendingDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("削除の確認") },
-            text = {
-                Text("「${target.title}」（${formatDate(target.date)}）を削除しますか？")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingDelete = null
-                    onDeleteRecord(target.id)
-                }) { Text("削除", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("キャンセル") }
-            },
-        )
+    val closeSearch = {
+        isSearchActive = false
+        onSearchQueryChange("")
     }
+    BackHandler(enabled = isSearchActive) { closeSearch() }
 
     Scaffold(
         topBar = {
@@ -162,10 +170,7 @@ private fun HistoryContent(
                 SearchTopBar(
                     query = uiState.searchQuery,
                     onQueryChange = onSearchQueryChange,
-                    onClose = {
-                        isSearchActive = false
-                        onSearchQueryChange("")
-                    },
+                    onClose = closeSearch,
                 )
             } else {
                 TopAppBar(
@@ -199,14 +204,22 @@ private fun HistoryContent(
                 }
             }
             !uiState.hasAnyRecords -> {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
-                    contentAlignment = Alignment.Center,
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = "鑑賞履歴がありません\n＋ボタンで追加してください",
+                        text = "鑑賞履歴がありません",
                         style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
                     )
+                    Button(
+                        onClick = onNavigateToAdd,
+                        modifier = Modifier.padding(top = 16.dp),
+                    ) {
+                        Text("最初の1本を記録する")
+                    }
                 }
             }
             uiState.sections.isEmpty() -> {
@@ -217,19 +230,23 @@ private fun HistoryContent(
                     Text(
                         text = "「${uiState.searchQuery}」に一致する映画がありません",
                         style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
                     )
                 }
             }
             else -> {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    // FAB に最後のカードが隠れないよう下に余白をとる
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     uiState.sections.forEach { section ->
                         stickyHeader(key = section.label) {
                             Text(
-                                text = section.label,
+                                text = section.headerText,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
@@ -243,7 +260,8 @@ private fun HistoryContent(
                                 record = record,
                                 onClick = { onCardClick(record.id) },
                                 onTitleClick = { onTitleClick(record.title) },
-                                onDeleteRequest = { pendingDelete = record },
+                                // 削除は「元に戻す」で取り消せるため、確認ダイアログは挟まない
+                                onDeleteRequest = { onDeleteRecord(record.id) },
                             )
                         }
                     }
@@ -261,6 +279,7 @@ private fun SearchTopBar(
     onClose: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     TopAppBar(
@@ -273,7 +292,9 @@ private fun SearchTopBar(
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions.Default,
+                // 検索は入力に合わせて即時反映されるので、検索キーはキーボードを閉じるだけ
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -383,19 +404,25 @@ private fun MovieRecordCard(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            // タイトル部分は作品別履歴へ、それ以外のカード部分は編集へ。矢印でタイトルがリンクだと分かるようにする
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onTitleClick),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .clickable(onClickLabel = "作品の鑑賞履歴を見る", onClick = onTitleClick),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = record.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
                 // 初見は表示せず、2回目以降だけバッジを出す
                 if (record.viewCount >= 2) {
                     Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
@@ -421,7 +448,7 @@ private fun MovieRecordCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = record.theaterName.ifBlank { "-" },
+                    text = record.theaterName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -435,9 +462,6 @@ private fun MovieRecordCard(
         }
     }
 }
-
-private fun formatDate(timestamp: Long): String =
-    SimpleDateFormat("yyyy/MM/dd", Locale.JAPAN).format(Date(timestamp))
 
 // region Previews
 

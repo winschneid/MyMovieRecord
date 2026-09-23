@@ -32,7 +32,7 @@ data class MovieRecordItem(
     val title: String,
     val theaterName: String = "",
     val date: Long,
-    val rating: Int = 0,
+    val rating: Int? = null,
     val review: String = "",
     val viewCount: Int = 1, // その作品の累計何回目の鑑賞か
 )
@@ -40,7 +40,10 @@ data class MovieRecordItem(
 data class HistorySection(
     val label: String, // 例: 2026年6月
     val items: List<MovieRecordItem>,
-)
+) {
+    /** 見出しに添える件数（例: 2026年6月 · 3本） */
+    val headerText: String get() = "$label · ${items.size}本"
+}
 
 data class HistoryUiState(
     val sections: List<HistorySection> = emptyList(),
@@ -98,6 +101,19 @@ internal fun buildHistorySections(records: List<MovieRecord>, query: String): Li
         .map { (label, items) -> HistorySection(label, items) }
 }
 
+/**
+ * LazyColumn 上で記録が属する月見出しの位置（見出しも1行として数える）。見つからなければ null。
+ * 記録そのものではなく見出しの位置を返し、スクロール後に見出しの下へ隠れないようにする。
+ */
+internal fun List<HistorySection>.listIndexOfHeaderFor(recordId: Long): Int? {
+    var index = 0
+    forEach { section ->
+        if (section.items.any { it.id == recordId }) return index
+        index += 1 + section.items.size
+    }
+    return null
+}
+
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -110,6 +126,8 @@ class HistoryViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     private val _message = MutableStateFlow<HistoryMessage?>(null)
     val message = _message.asStateFlow()
+    private val _scrollToRecordId = MutableStateFlow<Long?>(null)
+    val scrollToRecordId = _scrollToRecordId.asStateFlow()
 
     private var pendingUndo: MovieRecord? = null
 
@@ -141,9 +159,18 @@ class HistoryViewModel @Inject constructor(
 
     fun undoDelete() {
         viewModelScope.launch {
-            pendingUndo?.let { addMovieRecord(it.copy(id = 0)) }
+            pendingUndo?.let { record ->
+                // 元の id のまま戻す（並び順や「n回目」が削除前と同じになる）
+                addMovieRecord(record)
+                // 復元した記録が画面外に挿入されて「戻っていない」ように見えるのを防ぐ
+                _scrollToRecordId.value = record.id
+            }
             pendingUndo = null
         }
+    }
+
+    fun scrollHandled() {
+        _scrollToRecordId.value = null
     }
 
     fun exportTo(uri: Uri) {
@@ -174,10 +201,17 @@ class HistoryViewModel @Inject constructor(
                         ?: error("failed to open input stream")
                 }
                 val records = MovieRecordsJson.decode(text)
-                records.forEach { addMovieRecord(it) }
-                records.size
-            }.onSuccess { count ->
-                _message.value = HistoryMessage("${count}件をインポートしました")
+                // 同じバックアップを2回読み込んでも重複しないよう、作品名と日時が一致する記録は飛ばす
+                val existingKeys = getMovieRecords().first().map { it.title to it.date }.toSet()
+                val newRecords = records.distinctBy { it.title to it.date }
+                    .filterNot { (it.title to it.date) in existingKeys }
+                newRecords.forEach { addMovieRecord(it) }
+                newRecords.size to records.size - newRecords.size
+            }.onSuccess { (added, skipped) ->
+                _message.value = HistoryMessage(
+                    if (skipped == 0) "${added}件をインポートしました"
+                    else "${added}件をインポートしました（${skipped}件は登録済みのためスキップ）",
+                )
             }.onFailure {
                 _message.value = HistoryMessage("インポートに失敗しました（ファイル形式を確認してください）")
             }

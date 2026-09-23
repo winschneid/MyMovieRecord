@@ -5,7 +5,7 @@ data class MovieRecord(
     val title: String,
     val theaterName: String = "",
     val date: Long,
-    val rating: Int = 0,
+    val rating: Int? = null, // null は未評価。0〜5 は評価済み
     val review: String = "",
 ) {
     companion object {

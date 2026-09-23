@@ -56,12 +56,14 @@ import com.winschneid.mymovierecord.ui.theme.StarFilled
 
 @Composable
 fun YearSummaryScreen(
+    onNavigateToMovie: (title: String) -> Unit,
     viewModel: YearSummaryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     YearSummaryContent(
         uiState = uiState,
         onAction = viewModel::onAction,
+        onMovieClick = onNavigateToMovie,
     )
 }
 
@@ -70,6 +72,7 @@ fun YearSummaryScreen(
 private fun YearSummaryContent(
     uiState: YearSummaryUiState,
     onAction: (YearSummaryAction) -> Unit,
+    onMovieClick: (title: String) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -112,6 +115,7 @@ private fun YearSummaryContent(
                             summary = summary,
                             isExpanded = summary.year in uiState.expandedYears,
                             onToggle = { onAction(YearSummaryAction.ToggleYear(summary.year)) },
+                            onMovieClick = onMovieClick,
                         )
                     }
                 }
@@ -161,6 +165,7 @@ private fun YearCard(
     summary: YearSummary,
     isExpanded: Boolean,
     onToggle: () -> Unit,
+    onMovieClick: (title: String) -> Unit,
 ) {
     val arrowRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
@@ -188,7 +193,7 @@ private fun YearCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = formatAverageRating(summary.averageRating),
+                        text = "平均" + formatAverageRating(summary.averageRating),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -220,11 +225,24 @@ private fun YearCard(
                         ratingCounts = summary.ratingCounts,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+                    if (summary.unratedCount > 0) {
+                        Text(
+                            text = "未評価 ${summary.unratedCount}本",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                        )
+                    }
                     if (summary.topMovies.isNotEmpty()) {
                         HorizontalDivider()
                         SectionLabel("高評価の作品")
+                        val ranks = summary.topMovies.competitionRanks { it.rating }
                         summary.topMovies.forEachIndexed { index, movie ->
-                            RankedRow(rank = index + 1, name = movie.title) {
+                            RankedRow(
+                                rank = ranks[index],
+                                name = movie.title,
+                                onClick = { onMovieClick(movie.title) },
+                            ) {
                                 RatingStars(rating = movie.rating, starSize = 14.dp)
                             }
                             RowDivider(show = index < summary.topMovies.lastIndex)
@@ -233,8 +251,13 @@ private fun YearCard(
                     if (summary.rewatchedTitles.isNotEmpty()) {
                         HorizontalDivider()
                         SectionLabel("くり返し観た作品")
+                        val ranks = summary.rewatchedTitles.competitionRanks { it.count }
                         summary.rewatchedTitles.forEachIndexed { index, titleCount ->
-                            RankedRow(rank = index + 1, name = titleCount.title) {
+                            RankedRow(
+                                rank = ranks[index],
+                                name = titleCount.title,
+                                onClick = { onMovieClick(titleCount.title) },
+                            ) {
                                 CountText(titleCount.count)
                             }
                             RowDivider(show = index < summary.rewatchedTitles.lastIndex)
@@ -243,8 +266,9 @@ private fun YearCard(
                     if (summary.theaters.isNotEmpty()) {
                         HorizontalDivider()
                         SectionLabel("映画館・鑑賞場所")
+                        val ranks = summary.theaters.competitionRanks { it.count }
                         summary.theaters.forEachIndexed { index, theaterCount ->
-                            RankedRow(rank = index + 1, name = theaterCount.theaterName) {
+                            RankedRow(rank = ranks[index], name = theaterCount.theaterName) {
                                 CountText(theaterCount.count)
                             }
                             RowDivider(show = index < summary.theaters.lastIndex)
@@ -331,11 +355,24 @@ private fun CountText(count: Int) {
     )
 }
 
+/**
+ * 同じ値は同順位にする（例: 3, 3, 1 → 1位, 1位, 3位）。
+ * リストは値の降順に並んでいる前提。
+ */
+internal fun <T> List<T>.competitionRanks(value: (T) -> Int): List<Int> =
+    map { item -> 1 + count { value(it) > value(item) } }
+
 @Composable
-private fun RankedRow(rank: Int, name: String, trailing: @Composable () -> Unit) {
+private fun RankedRow(
+    rank: Int,
+    name: String,
+    onClick: (() -> Unit)? = null, // 作品の行はタップで作品別履歴へ
+    trailing: @Composable () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -416,6 +453,7 @@ internal fun YearSummaryCollapsedPreview() {
         YearSummaryContent(
             uiState = YearSummaryUiState(years = previewYears, overall = previewOverall, isLoading = false),
             onAction = {},
+            onMovieClick = {},
         )
     }
 }
@@ -432,6 +470,7 @@ internal fun YearSummaryExpandedPreview() {
                 expandedYears = setOf(2024),
             ),
             onAction = {},
+            onMovieClick = {},
         )
     }
 }

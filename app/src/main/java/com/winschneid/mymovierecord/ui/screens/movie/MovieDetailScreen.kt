@@ -12,11 +12,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,22 +38,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.winschneid.mymovierecord.ui.components.RatingStars
 import com.winschneid.mymovierecord.ui.components.formatAverageRating
+import com.winschneid.mymovierecord.ui.components.formatDate
 import com.winschneid.mymovierecord.ui.theme.MyMovieRecordTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun MovieDetailScreen(
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (id: Long) -> Unit,
+    onNavigateToRewatch: (title: String) -> Unit,
     viewModel: MovieDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 編集画面で最後の1件を削除・改題して戻ってきた場合、空の画面を見せずに一覧へ戻る
+    LaunchedEffect(uiState.isLoading, uiState.items.isEmpty()) {
+        if (!uiState.isLoading && uiState.items.isEmpty()) onNavigateBack()
+    }
+
     MovieDetailContent(
         uiState = uiState,
         onNavigateBack = onNavigateBack,
         onCardClick = onNavigateToEdit,
+        onRewatchClick = { onNavigateToRewatch(uiState.title) },
     )
 }
 
@@ -60,6 +69,7 @@ private fun MovieDetailContent(
     uiState: MovieDetailUiState,
     onNavigateBack: () -> Unit,
     onCardClick: (id: Long) -> Unit,
+    onRewatchClick: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -77,6 +87,13 @@ private fun MovieDetailContent(
                 },
             )
         },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onRewatchClick,
+                icon = { Icon(imageVector = Icons.Default.Add, contentDescription = null) },
+                text = { Text("もう一度観た") },
+            )
+        },
     ) { paddingValues ->
         when {
             uiState.isLoading -> {
@@ -90,7 +107,8 @@ private fun MovieDetailContent(
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
-                    contentPadding = PaddingValues(16.dp),
+                    // FAB に最後のカードが隠れないよう下に余白をとる
+                    contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item(key = "summary") {
@@ -176,7 +194,7 @@ private fun ViewingCard(item: ViewingItem, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = item.theaterName.ifBlank { "-" },
+                    text = item.theaterName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -190,9 +208,6 @@ private fun ViewingCard(item: ViewingItem, onClick: () -> Unit) {
         }
     }
 }
-
-private fun formatDate(timestamp: Long): String =
-    SimpleDateFormat("yyyy/MM/dd", Locale.JAPAN).format(Date(timestamp))
 
 // region Previews
 
@@ -236,6 +251,7 @@ internal fun MovieDetailPreview() {
             ),
             onNavigateBack = {},
             onCardClick = {},
+            onRewatchClick = {},
         )
     }
 }
