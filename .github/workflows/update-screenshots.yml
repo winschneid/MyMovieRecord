@@ -30,9 +30,6 @@ jobs:
       - name: Regenerate reference screenshots
         run: ./gradlew updateDebugScreenshotTest
 
-      - name: Debug locate pngs
-        run: find app -name "*.png" -not -path "*/intermediates/*" | head -40; ls -R app/src | head -60
-
       - name: Commit updated references
         run: |
           git config user.name "github-actions[bot]"
