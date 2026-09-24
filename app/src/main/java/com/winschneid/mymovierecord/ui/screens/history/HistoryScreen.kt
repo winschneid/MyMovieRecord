@@ -169,7 +169,7 @@ private fun HistoryContent(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("鑑賞履歴") },
+                    title = { Text("鑑賞履歴（差分検証）") },
                     actions = {
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(imageVector = Icons.Default.Search, contentDescription = "検索")
