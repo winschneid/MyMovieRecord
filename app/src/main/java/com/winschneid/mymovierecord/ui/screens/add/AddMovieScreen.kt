@@ -214,17 +214,11 @@ private fun AddMovieContent(
                 onImeNext = { theaterFocus.requestFocus() },
             )
 
-            Column {
-                Text(
-                    text = "評価",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                RatingInput(
-                    rating = uiState.rating,
-                    onRatingChange = { onAction(AddMovieAction.UpdateRating(it)) },
-                )
-            }
+            RatingInput(
+                label = "評価",
+                rating = uiState.rating,
+                onRatingChange = { onAction(AddMovieAction.UpdateRating(it)) },
+            )
 
             // readOnly の TextField はタップを拾わないため、透明なオーバーレイで全体をタップ可能にする
             Box {
