@@ -1,6 +1,7 @@
 package com.winschneid.mymovierecord.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -64,39 +65,59 @@ fun RatingStars(
 /**
  * 入力用の星。n番目の星をタップすると評価n。
  * 現在の評価と同じ星をもう一度タップすると0（☆0）にする。「クリア」で未評価（null）に戻す。
+ *
+ * 星5つ（48dp×5）の横に評価の文字とクリアボタンまで並べると幅360dpの端末で収まらず
+ * ボタンの文字が折り返すため、評価の文字はラベルの行に置き、星の行は星とクリアだけにする。
  */
 @Composable
 fun RatingInput(
+    label: String,
     rating: Int?,
     onRatingChange: (Int?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        (1..MovieRecord.MAX_RATING).forEach { value ->
-            val isSelected = rating != null && value <= rating
-            IconButton(
-                onClick = { onRatingChange(if (rating == value) 0 else value) },
-                modifier = Modifier.semantics { selected = rating == value },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "評価を${value}にする",
-                    tint = if (isSelected) StarFilled else emptyStarColor(),
-                    modifier = Modifier.size(36.dp),
-                )
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = if (rating == null) "未評価" else "$rating / ${MovieRecord.MAX_RATING}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RatingStarButtons(rating = rating, onRatingChange = onRatingChange)
+            if (rating != null) {
+                TextButton(onClick = { onRatingChange(null) }) {
+                    Text("クリア", maxLines = 1, softWrap = false)
+                }
             }
         }
-        Text(
-            text = if (rating == null) "未評価" else "$rating / ${MovieRecord.MAX_RATING}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-        if (rating != null) {
-            TextButton(onClick = { onRatingChange(null) }) { Text("クリア") }
+    }
+}
+
+@Composable
+private fun RatingStarButtons(
+    rating: Int?,
+    onRatingChange: (Int?) -> Unit,
+) {
+    (1..MovieRecord.MAX_RATING).forEach { value ->
+        val isSelected = rating != null && value <= rating
+        IconButton(
+            onClick = { onRatingChange(if (rating == value) 0 else value) },
+            modifier = Modifier.semantics { selected = rating == value },
+        ) {
+            Icon(
+                imageVector = Icons.Default.Star,
+                contentDescription = "評価を${value}にする",
+                tint = if (isSelected) StarFilled else emptyStarColor(),
+                modifier = Modifier.size(36.dp),
+            )
         }
     }
 }
