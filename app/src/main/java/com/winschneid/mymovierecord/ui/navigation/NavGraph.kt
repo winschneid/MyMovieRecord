@@ -74,15 +74,26 @@ fun NavGraph() {
         ) {
             composable(Routes.History.route) {
                 HistoryScreen(
-                    onNavigateToAdd = { navController.navigate(Routes.AddMovie.route) },
+                    onNavigateToAdd = { navController.navigate(Routes.AddMovie.createRoute()) },
                     onNavigateToEdit = { id -> navController.navigate(Routes.EditMovie.createRoute(id)) },
                     onNavigateToMovie = { title -> navController.navigate(Routes.MovieDetail.createRoute(title)) },
                 )
             }
             composable(Routes.YearSummary.route) {
-                YearSummaryScreen()
+                YearSummaryScreen(
+                    onNavigateToMovie = { title -> navController.navigate(Routes.MovieDetail.createRoute(title)) },
+                )
             }
-            composable(Routes.AddMovie.route) {
+            composable(
+                route = Routes.AddMovie.route,
+                arguments = listOf(
+                    navArgument("title") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) {
                 AddMovieScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(
@@ -98,6 +109,7 @@ fun NavGraph() {
                 MovieDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToEdit = { id -> navController.navigate(Routes.EditMovie.createRoute(id)) },
+                    onNavigateToRewatch = { title -> navController.navigate(Routes.AddMovie.createRoute(title)) },
                 )
             }
         }

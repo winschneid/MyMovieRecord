@@ -9,7 +9,7 @@ import org.json.JSONObject
  * {
  *   "version": 1,
  *   "records": [
- *     { "title": "...", "theater": "", "date": <epoch millis>, "rating": <0〜5>, "review": "" }
+ *     { "title": "...", "theater": "", "date": <epoch millis>, "rating": <0〜5 or null（未評価）>, "review": "" }
  *   ]
  * }
  */
@@ -25,7 +25,7 @@ object MovieRecordsJson {
                     put("title", record.title)
                     put("theater", record.theaterName)
                     put("date", record.date)
-                    put("rating", record.rating)
+                    put("rating", record.rating ?: JSONObject.NULL)
                     put("review", record.review)
                 }
             )
@@ -48,7 +48,8 @@ object MovieRecordsJson {
                 title = title,
                 theaterName = obj.optString("theater", "").trim(),
                 date = obj.getLong("date"),
-                rating = obj.optInt("rating", 0).coerceIn(MovieRecord.MIN_RATING, MovieRecord.MAX_RATING),
+                rating = if (obj.isNull("rating")) null
+                else obj.getInt("rating").coerceIn(MovieRecord.MIN_RATING, MovieRecord.MAX_RATING),
                 review = obj.optString("review", ""),
             )
         }

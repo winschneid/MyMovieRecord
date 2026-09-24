@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.winschneid.mymovierecord.domain.model.YearSummary
 import com.winschneid.mymovierecord.domain.usecase.GetMovieRecordsUseCase
 import com.winschneid.mymovierecord.domain.usecase.GetYearSummaryUseCase
+import com.winschneid.mymovierecord.domain.usecase.averageRatingOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,7 +17,7 @@ import javax.inject.Inject
 data class OverallSummary(
     val totalCount: Int,
     val titleCount: Int,
-    val averageRating: Double,
+    val averageRating: Double?,
 )
 
 data class YearSummaryUiState(
@@ -36,7 +37,8 @@ class YearSummaryViewModel @Inject constructor(
     getMovieRecords: GetMovieRecordsUseCase,
 ) : ViewModel() {
 
-    private val _expandedYears = MutableStateFlow<Set<Int>>(emptySet())
+    // null の間は「最新の年だけ展開」を既定とする。ユーザーが開閉したら以降はその状態を使う
+    private val _expandedYears = MutableStateFlow<Set<Int>?>(null)
 
     val uiState = combine(
         getYearSummary(),
@@ -48,10 +50,10 @@ class YearSummaryViewModel @Inject constructor(
             overall = if (records.isEmpty()) null else OverallSummary(
                 totalCount = records.size,
                 titleCount = records.map { it.title }.distinct().size,
-                averageRating = records.map { it.rating }.average(),
+                averageRating = averageRatingOf(records),
             ),
             isLoading = false,
-            expandedYears = expandedYears,
+            expandedYears = expandedYears ?: setOfNotNull(years.firstOrNull()?.year),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -61,7 +63,8 @@ class YearSummaryViewModel @Inject constructor(
 
     fun onAction(action: YearSummaryAction) {
         when (action) {
-            is YearSummaryAction.ToggleYear -> _expandedYears.update { current ->
+            is YearSummaryAction.ToggleYear -> _expandedYears.update {
+                val current = it ?: uiState.value.expandedYears
                 if (action.year in current) current - action.year else current + action.year
             }
         }

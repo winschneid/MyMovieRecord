@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.util.Calendar
 
@@ -36,7 +37,7 @@ class GetYearSummaryUseCaseTest {
         id: Long,
         year: Int,
         title: String,
-        rating: Int = 0,
+        rating: Int? = null,
         theater: String = "",
         day: Int = 1,
     ) = MovieRecord(
@@ -65,7 +66,7 @@ class GetYearSummaryUseCaseTest {
     }
 
     @Test
-    fun `平均評価と評価の分布が計算される`() {
+    fun `平均評価と評価の分布が計算され評価0は評価済みとして数える`() {
         val summary = summarize(
             record(1, 2024, "A", rating = 5),
             record(2, 2024, "B", rating = 4),
@@ -73,17 +74,40 @@ class GetYearSummaryUseCaseTest {
             record(4, 2024, "D", rating = 5),
         ).single()
 
-        assertEquals(3.5, summary.averageRating, 0.0001)
+        assertEquals(3.5, summary.averageRating!!, 0.0001)
         assertEquals(listOf(1, 0, 0, 0, 1, 2), summary.ratingCounts)
+        assertEquals(0, summary.unratedCount)
     }
 
     @Test
-    fun `高評価の作品は評価順で評価0は除外し同じ作品は最高評価の1件だけ残す`() {
+    fun `未評価は平均と分布から除外され別に数えられる`() {
+        val summary = summarize(
+            record(1, 2024, "A", rating = 4),
+            record(2, 2024, "B", rating = null),
+            record(3, 2024, "C", rating = 2),
+        ).single()
+
+        assertEquals(3.0, summary.averageRating!!, 0.0001)
+        assertEquals(listOf(0, 0, 1, 0, 1, 0), summary.ratingCounts)
+        assertEquals(1, summary.unratedCount)
+    }
+
+    @Test
+    fun `全て未評価なら平均はnull`() {
+        val summary = summarize(record(1, 2024, "A")).single()
+
+        assertNull(summary.averageRating)
+        assertEquals(1, summary.unratedCount)
+    }
+
+    @Test
+    fun `高評価の作品は評価順で評価0と未評価は除外し同じ作品は最高評価の1件だけ残す`() {
         val summary = summarize(
             record(1, 2024, "A", rating = 3, day = 1),
             record(2, 2024, "B", rating = 5, day = 2),
             record(3, 2024, "A", rating = 4, day = 3),
             record(4, 2024, "C", rating = 0, day = 4),
+            record(5, 2024, "D", rating = null, day = 5),
         ).single()
 
         assertEquals(listOf(RatedMovie("B", 5), RatedMovie("A", 4)), summary.topMovies)

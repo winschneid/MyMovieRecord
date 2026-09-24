@@ -64,6 +64,16 @@ class HistorySectionsTest {
     }
 
     @Test
+    fun `記録が属する月見出しの一覧上の位置を返す（見出しも1行と数える）`() {
+        val sections = buildHistorySections(records, query = "")
+
+        // [0]2025年3月 [1]id=3 [2]2025年1月 [3]id=2 [4]id=1
+        assertEquals(0, sections.listIndexOfHeaderFor(3L))
+        assertEquals(2, sections.listIndexOfHeaderFor(1L))
+        assertEquals(null, sections.listIndexOfHeaderFor(99L))
+    }
+
+    @Test
     fun `検索で絞り込んでもn回目はフィルタ前の全履歴基準のまま`() {
         val sections = buildHistorySections(records, "109")
 

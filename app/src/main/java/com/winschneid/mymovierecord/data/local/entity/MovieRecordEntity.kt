@@ -16,7 +16,7 @@ data class MovieRecordEntity(
     @ColumnInfo(name = "theater_name")
     val theaterName: String,
     val date: Long,
-    // 評価（0〜5の整数）
-    val rating: Int,
+    // 評価（0〜5の整数）。NULL は未評価
+    val rating: Int?,
     val review: String,
 )

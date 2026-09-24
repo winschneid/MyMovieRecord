@@ -15,7 +15,7 @@ data class ViewingItem(
     val id: Long,
     val theaterName: String,
     val date: Long,
-    val rating: Int,
+    val rating: Int?,
     val review: String,
     val viewCount: Int, // その鑑賞時点でのn回目
 )
@@ -24,7 +24,7 @@ data class MovieDetailUiState(
     val title: String = "",
     val totalCount: Int = 0,
     val firstDate: Long? = null,
-    val averageRating: Double = 0.0,
+    val averageRating: Double? = null, // 評価済みの回だけで平均
     val items: List<ViewingItem> = emptyList(),
     val isLoading: Boolean = true,
 )
@@ -57,7 +57,7 @@ class MovieDetailViewModel @Inject constructor(
                 title = title,
                 totalCount = items.size,
                 firstDate = items.minOfOrNull { it.date },
-                averageRating = if (items.isEmpty()) 0.0 else items.map { it.rating }.average(),
+                averageRating = items.mapNotNull { it.rating }.takeIf { it.isNotEmpty() }?.average(),
                 items = items,
                 isLoading = false,
             )
